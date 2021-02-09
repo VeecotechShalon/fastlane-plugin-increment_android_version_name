@@ -3,44 +3,122 @@ require_relative '../helper/increment_android_version_name_helper'
 
 module Fastlane
   module Actions
+    module SharedValues
+      ANDROID_VERSION_NAME = :ANDROID_VERSION_NAME
+    end
     class IncrementAndroidVersionNameAction < Action
       def self.run(params)
-        UI.message("The increment_android_version_name plugin is working!")
+        path = params[:path]
+        type = params[:type]
+
+        major = 0
+        foundMajor = false
+        minor = 0
+        foundMinor = false
+        patch = 0
+        foundPatch = false
+
+        data = File.read(path)
+        data.each_line do |line|
+            if (line.start_with?("def VERSION_MAJOR"))
+                foundMajor = true
+                major = line.delete("def VERSION_MAJOR=").to_i
+            elsif (line.start_with?("def VERSION_MINOR"))
+                foundMinor = true
+                minor = line.delete("def VERSION_MINOR=").to_i
+            elsif (line.start_with?("def VERSION_PATCH"))
+                foundPatch = true
+                patch = line.delete("def VERSION_PATCH=").to_i
+            end
+        end
+
+        if (!foundMajor)
+            UI.error "VERSION_MAJOR not found in build.gradle file, please ensure file contains 'def VERSION_MAJOR=0' declaration"
+            raise "Illegal Argument Exception : No VERSION_MAJOR variable in build.gradle file"
+        end
+        if (!foundMinor)
+            UI.error "VERSION_MINOR not found in build.gradle file, please ensure file contains 'def VERSION_MINOR=0' declaration"
+            raise "Illegal Argument Exception : No VERSION_MINOR variable in build.gradle file"
+        end
+        if (!foundPatch)
+            UI.error "VERSION_PATCH not found in build.gradle file, please ensure file contains 'def VERSION_PATCH=0' declaration"
+            raise "Illegal Argument Exception : No VERSION_PATCH variable in build.gradle file"
+        end
+
+        if (type.casecmp("major").zero?)
+            major = major + 1
+            minor = 0
+            patch = 0
+        elsif (type.casecmp("minor").zero?)
+            minor = minor + 1
+            patch = 0
+        elsif (type.casecmp("patch").zero?)
+            patch = patch + 1
+        elsif(!type.casecmp("none").zero?)
+            UI.error "Please specify the version name value to increase (major|minor|patch|none)"
+            raise "IllegalArgumentException : No valid version name value provided"
+        end
+
+        updated_data = data
+        data.each_line do |line|
+            if (line.start_with?("def VERSION_MAJOR"))
+                updated_data = updated_data.gsub(line, "def VERSION_MAJOR=#{major}\r\n")
+            elsif (line.start_with?("def VERSION_MINOR"))
+                updated_data = updated_data.gsub(line, "def VERSION_MINOR=#{minor}\r\n")
+            elsif (line.start_with?("def VERSION_PATCH"))
+                updated_data = updated_data.gsub(line, "def VERSION_PATCH=#{patch}\r\n")
+            end
+        end
+
+        File.open(path, "w") do |f|
+            f.write(updated_data)
+        end
+
+        versionName = "#{major}.#{minor}.#{patch}"
+        UI.message "Android version name updated to #{versionName}"
+        return Actions.lane_context[SharedValues::ANDROID_VERSION_NAME] = versionName
+      end
+
+      def self.is_supported?(platform)
+        platform == :android
       end
 
       def self.description
-        "Increment version name for android"
+        "This action updates the Android version name"
       end
 
       def self.authors
         ["Shalon Teoh"]
       end
 
-      def self.return_value
-        # If your method provides a return value, you can describe here what it does
-      end
-
-      def self.details
-        # Optional:
-        ""
-      end
-
       def self.available_options
         [
-          # FastlaneCore::ConfigItem.new(key: :your_option,
-          #                         env_name: "INCREMENT_ANDROID_VERSION_NAME_YOUR_OPTION",
-          #                      description: "A description of your option",
-          #                         optional: false,
-          #                             type: String)
-        ]
+            FastlaneCore::ConfigItem.new(key: :path,
+                               description: "Path to your version.properties file",
+                               optional: false),
+            FastlaneCore::ConfigItem.new(key: :type,
+                              description: "Version name value to update [major, minor, patch, or none]",
+                              optional: false)
+       ]
       end
 
-      def self.is_supported?(platform)
-        # Adjust this if your plugin only works for a particular platform (iOS vs. Android, for example)
-        # See: https://docs.fastlane.tools/advanced/#control-configuration-by-lane-and-by-platform
-        #
-        # [:ios, :mac, :android].include?(platform)
-        true
+      def self.output
+          [
+              ['ANDROID_VERSION_NAME', 'The new version name']
+          ]
+      end
+
+      def self.example_code
+          [
+              'increment_android_version_name(
+                  path: "/path/to/version.properties"
+                  type: "patch"
+              )'
+          ]
+      end
+
+      def self.category
+          :project
       end
     end
   end
